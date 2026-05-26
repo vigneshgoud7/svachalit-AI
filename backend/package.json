@@ -4,7 +4,7 @@
   "description": "Backend API and AI Orchestrator for Multi-Channel Auto Reply Platform",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc --noEmitOnError false",
     "start": "node dist/index.js",
     "dev": "tsx watch src/index.ts",
     "prisma:generate": "prisma generate",
