@@ -2,16 +2,14 @@ import { Router, Request, Response } from 'express';
 import { messageQueue } from '../queues/messageQueue';
 import { Channel } from '@prisma/client';
 import { InboundMessagePayload } from '../types';
+import { prisma } from '../db/client';
+import { ToolService } from '../services/toolService';
 
 const router = Router();
 
-// Meta Webhook Verification Token (set this in Meta Developer Portal)
+// Meta Webhook Verification Token
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'multichannel_verify_token_123';
 
-/**
- * Shared Meta challenge verification handler.
- * Used by Meta to confirm ownership of the webhook URL.
- */
 const verifyMetaWebhook = (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -37,14 +35,11 @@ router.post('/whatsapp', async (req: Request, res: Response) => {
     const { body } = req;
     console.log('[Webhook] Received WhatsApp payload:', JSON.stringify(body, null, 2));
 
-    // Extract headers or query params for Tenant Authorization
     const tenantApiKey = (req.headers['x-tenant-api-key'] || req.query.apiKey) as string;
     if (!tenantApiKey) {
-      return res.status(401).json({ error: 'Missing tenant API Key in header/query parameters (x-tenant-api-key)' });
+      return res.status(401).json({ error: 'Missing tenant API Key' });
     }
 
-    // Parse Meta Cloud API message payload structures
-    // Ref: https://developers.facebook.com/docs/whatsapp/cloud-api/webhooks/payload-examples
     if (body.entry && body.entry[0]?.changes && body.entry[0].changes[0]?.value?.messages) {
       const value = body.entry[0].changes[0].value;
       const message = value.messages[0];
@@ -54,20 +49,18 @@ router.post('/whatsapp', async (req: Request, res: Response) => {
         const payload: InboundMessagePayload = {
           tenantApiKey,
           channel: Channel.WHATSAPP,
-          senderId: message.from, // Sender phone number
+          senderId: message.from,
           senderName: contact?.profile?.name || 'WhatsApp User',
           messageId: message.id,
           body: message.text.body,
           metadata: { raw: body }
         };
 
-        // Push to BullMQ
         const job = await messageQueue.add('whatsapp-message', payload);
         console.log(`[Webhook] Enqueued WhatsApp message Job: ${job.id}`);
       }
     }
 
-    // Always return 200 to acknowledge Meta webhook delivery
     return res.status(200).send('EVENT_RECEIVED');
   } catch (error) {
     console.error('[Webhook] WhatsApp parser error:', error);
@@ -89,7 +82,6 @@ router.post('/instagram', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
 
-    // Instagram Messenger Graph Webhooks
     if (body.entry && body.entry[0]?.messaging) {
       const messagingEvent = body.entry[0].messaging[0];
       if (messagingEvent.message && !messagingEvent.message.is_echo) {
@@ -129,7 +121,6 @@ router.post('/facebook', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
 
-    // Messenger Webhooks
     if (body.entry && body.entry[0]?.messaging) {
       const messagingEvent = body.entry[0].messaging[0];
       if (messagingEvent.message && !messagingEvent.message.is_echo) {
@@ -156,61 +147,256 @@ router.post('/facebook', async (req: Request, res: Response) => {
 });
 
 // ==========================================
-// 4. VOICE WEBHOOK HANDLERS (Twilio & Vapi/Retell AI support)
+// 4. VOICE WEBHOOK HANDLERS (Vapi & Twilio event receiver)
 // ==========================================
 router.post('/voice', async (req: Request, res: Response) => {
   try {
     const { body } = req;
-    console.log('[Webhook] Received Voice stream payload:', JSON.stringify(body, null, 2));
+    console.log('[Webhook] Received Voice webhook payload:', JSON.stringify(body, null, 2));
 
     const tenantApiKey = (req.headers['x-tenant-api-key'] || req.query.apiKey) as string;
     if (!tenantApiKey) {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
 
-    let senderId = '';
-    let bodyText = '';
-    let messageId = '';
+    const tenant = await prisma.tenant.findUnique({ where: { apiKey: tenantApiKey } });
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
 
-    // A. Detect Twilio Call Form Parameters (x-www-form-urlencoded)
+    // A. Detect Twilio Call Parameters
     if (req.body.CallSid) {
-      senderId = req.body.From; // Customer phone number
-      bodyText = req.body.SpeechResult || req.body.Body || ''; // Speech-to-text transcription from Twilio <Gather>
-      messageId = req.body.CallSid;
-    } 
-    // B. Detect Vapi Assistant Request / Webhook payload format
-    else if (body.message) {
-      const msg = body.message;
-      if (msg.type === 'transcript' && msg.transcriptType === 'final') {
-        senderId = msg.customer?.number || 'Voice Call';
-        bodyText = msg.transcript;
-        messageId = msg.call?.id || String(Date.now());
+      const senderId = req.body.From;
+      const bodyText = req.body.SpeechResult || req.body.Body || '';
+      const messageId = req.body.CallSid;
+
+      if (senderId && bodyText) {
+        const payload: InboundMessagePayload = {
+          tenantApiKey,
+          channel: Channel.VOICE,
+          senderId,
+          senderName: 'Voice Caller',
+          messageId,
+          body: bodyText,
+          metadata: { raw: body }
+        };
+
+        const job = await messageQueue.add('voice-message', payload);
+        return res.status(200).json({ status: 'queued', jobId: job.id });
+      }
+      return res.status(200).json({ status: 'skipped' });
+    }
+
+    // B. Detect Vapi webhook server payload shapes
+    if (body.message) {
+      const vapiMessage = body.message;
+      const callSid = vapiMessage.call?.id || 'vapi_call_active';
+      const customerPhone = vapiMessage.customer?.number || '+15551000';
+
+      // Load conversation reference
+      let customer = await prisma.customer.findFirst({
+        where: { tenantId: tenant.id, phone: customerPhone }
+      });
+      if (!customer) {
+        customer = await prisma.customer.create({
+          data: { tenantId: tenant.id, name: 'Voice Caller', phone: customerPhone }
+        });
+      }
+
+      let conversation = await prisma.conversation.findUnique({
+        where: { customerId_channel: { customerId: customer.id, channel: Channel.VOICE } }
+      });
+      if (!conversation) {
+        conversation = await prisma.conversation.create({
+          data: { tenantId: tenant.id, customerId: customer.id, channel: Channel.VOICE }
+        });
+      }
+
+      // Handle Vapi Assistant Request dynamically
+      if (vapiMessage.type === 'assistant-request') {
+        console.log('[Webhook Voice] Handled Vapi Assistant Request. Returning dynamic model details.');
+        // Vapi expects configuration instructions
+        return res.status(200).json({
+          assistant: {
+            name: 'Voice Receptionist',
+            firstMessage: 'Hello! Welcome to our automated receptionist. How can I help you today?',
+            model: {
+              provider: 'custom-llm',
+              url: `http://localhost:4000/api/v1/voice/completion?apiKey=${tenantApiKey}`,
+              model: 'gemini-1.5-flash',
+              // Vapi function schema definitions
+              tools: [
+                {
+                  name: 'bookAppointment',
+                  type: 'function',
+                  description: 'Schedules an appointment in the business calendar',
+                  parameters: {
+                    type: 'object',
+                    properties: {
+                      dateTime: { type: 'string', description: 'ISO date' },
+                      customerName: { type: 'string' }
+                    },
+                    required: ['dateTime', 'customerName']
+                  }
+                },
+                {
+                  name: 'exportToSheet',
+                  type: 'function',
+                  description: 'Saves lead parameters in the spreadsheet',
+                  parameters: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string' },
+                      email: { type: 'string' },
+                      notes: { type: 'string' }
+                    },
+                    required: ['name']
+                  }
+                },
+                {
+                  name: 'transferToHuman',
+                  type: 'function',
+                  description: 'Escalates thread to a human live agent',
+                  parameters: { type: 'object', properties: {} }
+                }
+              ]
+            },
+            voice: {
+              provider: 'playht',
+              voiceId: 'susan'
+            }
+          }
+        });
+      }
+
+      // Handle Vapi real-time transcript streaming
+      if (vapiMessage.type === 'transcript') {
+        const transcriptText = vapiMessage.transcript || '';
+        const speaker = vapiMessage.role || 'user';
+
+        console.log(`[Webhook Voice] Live Call Transcript: [${speaker}] ${transcriptText}`);
+
+        // Broadcast to SSE streams for real-time dashboard transcript sync
+        ToolService.liveChatEmitter.emit('crm-update', {
+          conversationId: conversation.id,
+          customerId: customer.id,
+          conversation: {
+            ...conversation,
+            metadata: {
+              activeCall: true,
+              liveTranscript: transcriptText,
+              callSid,
+              speakingState: speaker === 'user' ? 'CUSTOMER_SPEAKING' : 'AI_SPEAKING',
+              callStart: conversation.createdAt
+            }
+          }
+        });
+        return res.status(200).send('TRANSCRIPT_RECEIVED');
+      }
+
+      // Handle Vapi Tool Calls execution
+      if (vapiMessage.type === 'tool-calls') {
+        console.log('[Webhook Voice] Executing tool calls for Vapi call session:', vapiMessage.toolCalls);
+        const results: any[] = [];
+
+        for (const toolCall of vapiMessage.toolCalls) {
+          const { name } = toolCall.function;
+          const rawArgs = toolCall.function.arguments;
+          
+          // Safer parsing
+          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+          let resultText = '';
+
+          if (name === 'bookAppointment') {
+            const data = await ToolService.bookAppointment({
+              dateTime: args.dateTime,
+              customerName: args.customerName,
+              conversationId: conversation.id
+            });
+            resultText = JSON.stringify(data);
+          } else if (name === 'exportToSheet') {
+            const data = await ToolService.exportToSheet({
+              leadData: args,
+              conversationId: conversation.id
+            });
+            resultText = JSON.stringify(data);
+          } else if (name === 'transferToHuman') {
+            const data = await ToolService.transferToHuman({ conversationId: conversation.id });
+            resultText = JSON.stringify(data);
+          }
+
+          results.push({
+            toolCallId: toolCall.id,
+            result: resultText
+          });
+        }
+
+        console.log('[Webhook Voice] Webhook returning function call result:', results);
+        return res.status(200).json({ results });
+      }
+
+      // Handle Vapi Status Update (Ringing, connected, ended)
+      if (vapiMessage.type === 'status-update') {
+        console.log(`[Webhook Voice] Call state changed: ${vapiMessage.status}`);
+
+        const activeCall = vapiMessage.status !== 'ended';
+        
+        ToolService.liveChatEmitter.emit('crm-update', {
+          conversationId: conversation.id,
+          customerId: customer.id,
+          conversation: {
+            ...conversation,
+            metadata: {
+              activeCall,
+              callSid,
+              callStatus: vapiMessage.status,
+              speakingState: activeCall ? 'IDLE' : 'CALL_ENDED',
+              callDuration: vapiMessage.duration || 0
+            }
+          }
+        });
+        return res.status(200).send('STATUS_PROCESSED');
+      }
+
+      // Handle End of Call Summary persistence
+      if (vapiMessage.type === 'end-of-call-report') {
+        console.log('[Webhook Voice] Call concluded. Summary:', vapiMessage.summary);
+
+        const savedSummaryMessage = await prisma.message.create({
+          data: {
+            conversationId: conversation.id,
+            senderType: 'AI',
+            body: `[CALL ENDED - SUMMARY]: ${vapiMessage.summary || 'Caller hung up.'}`,
+            metadata: { duration: vapiMessage.duration, cost: vapiMessage.cost }
+          }
+        });
+
+        ToolService.liveChatEmitter.emit('new-message', {
+          conversationId: conversation.id,
+          message: savedSummaryMessage
+        });
+
+        ToolService.liveChatEmitter.emit('crm-update', {
+          conversationId: conversation.id,
+          customerId: customer.id,
+          conversation: {
+            ...conversation,
+            metadata: {
+              activeCall: false,
+              speakingState: 'CALL_ENDED',
+              callDuration: vapiMessage.duration,
+              callSummary: vapiMessage.summary
+            }
+          }
+        });
+        return res.status(200).send('REPORT_PERSISTED');
       }
     }
 
-    // Process only if we have transcribed speech
-    if (senderId && bodyText) {
-      const payload: InboundMessagePayload = {
-        tenantApiKey,
-        channel: Channel.VOICE,
-        senderId,
-        senderName: 'Voice Caller',
-        messageId,
-        body: bodyText,
-        metadata: { raw: body }
-      };
-
-      const job = await messageQueue.add('voice-message', payload);
-      console.log(`[Webhook] Enqueued Voice message Job: ${job.id}`);
-
-      // Return a quick voice-specific JSON trigger back to provider if needed
-      return res.status(200).json({ status: 'queued', jobId: job.id });
-    }
-
-    return res.status(200).json({ status: 'skipped', reason: 'No voice transcription captured yet' });
+    return res.status(200).json({ status: 'skipped', reason: 'Unrecognized JSON body structure' });
   } catch (error) {
-    console.error('[Webhook] Voice parser error:', error);
-    return res.status(500).json({ error: 'Internal processing error' });
+    console.error('[Webhook] Voice webhook ingestion failure:', error);
+    return res.status(500).json({ error: 'Internal voice processing failure' });
   }
 });
 
