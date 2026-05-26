@@ -1,0 +1,108 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  AGENT
+}
+
+enum Channel {
+  WHATSAPP
+  INSTAGRAM
+  FACEBOOK
+  VOICE
+  WEB
+}
+
+enum ConvStatus {
+  AI_MANAGED
+  HUMAN_PENDING
+}
+
+model Tenant {
+  id            String          @id @default(uuid())
+  name          String
+  apiKey        String          @unique @default(uuid())
+  openaiKey     String?         // Optional tenant-specific OpenAI Key
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  users         User[]
+  customers     Customer[]
+  conversations Conversation[]
+  knowledgeBase KnowledgeBase[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(AGENT)
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Customer {
+  id            String         @id @default(uuid())
+  name          String?
+  email         String?
+  phone         String?        // Standard for WhatsApp / Voice
+  instagramId   String?        // Instagram account scope ID
+  facebookId    String?        // Messenger scope ID
+  metadata      Json?          // Key-value pairs of dynamic attributes parsed by AI (e.g. appointment date, interests)
+  tenantId      String
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  conversations Conversation[]
+
+  @@unique([tenantId, phone])
+  @@unique([tenantId, instagramId])
+  @@unique([tenantId, facebookId])
+}
+
+model Conversation {
+  id         String     @id @default(uuid())
+  channel    Channel
+  status     ConvStatus @default(AI_MANAGED)
+  customerId String
+  customer   Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tenantId   String
+  tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  messages   Message[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@unique([customerId, channel])
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderType     String       // "CUSTOMER" | "AI" | "AGENT"
+  body           String
+  metadata       Json?        // Optional messaging detail logs
+  createdAt      DateTime     @default(now())
+}
+
+model KnowledgeBase {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  // Storing vector for pgvector. Prisma schema maps Unsupported types,
+  // which can be set/queried via raw queries.
+  embedding Unsupported("vector(1536)")?
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
