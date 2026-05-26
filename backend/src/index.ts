@@ -21,6 +21,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Root Route
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: 'AutoBot Backend API Running 🚀'
+  });
+});
+
+// Mount Omnichannel Webhooks
+app.use('/api/v1/webhooks', webhookRouter);
+
 // Mount Omnichannel Webhooks
 app.use('/api/v1/webhooks', webhookRouter);
 
