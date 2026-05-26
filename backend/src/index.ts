@@ -236,7 +236,7 @@ app.patch('/api/v1/conversations/:id/status', async (req: Request, res: Response
 // ==========================================
 // SEEDING / PROVISIONING HELPER ENDPOINT
 // ==========================================
-app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
+app.get('/api/v1/dev/seed', async (req: Request, res: Response) => {
   try {
     let tenant = await prisma.tenant.findFirst({
       where: { name: 'Acme Corp' }
