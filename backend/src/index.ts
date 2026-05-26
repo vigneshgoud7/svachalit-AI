@@ -3,7 +3,6 @@ import cors from 'cors';
 import { env } from './config/env';
 import { prisma } from './db/client';
 import webhookRouter from './routes/webhookRoutes';
-import voiceCompletionRouter from './routes/voiceCompletion';
 import { OutboundRouter } from './services/outboundRouter';
 import { liveChatEmitter } from './services/toolService';
 import './queues/messageWorker'; // Boot worker
@@ -26,7 +25,6 @@ app.use((req, res, next) => {
 app.use('/api/v1/webhooks', webhookRouter);
 
 // Mount Voice Custom LLM Completions (Vapi Endpoint)
-app.use('/api/v1/voice', voiceCompletionRouter);
 
 // ==========================================
 // SSE STREAM: REAL-TIME CONSOLE ROUTE

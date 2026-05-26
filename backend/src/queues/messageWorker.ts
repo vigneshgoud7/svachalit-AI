@@ -1,6 +1,6 @@
 import { Worker, Job } from 'bullmq';
 import { redisConnection } from './messageQueue';
-import { AIOrchestrator } from '../services/aiOrchestrator';
+import { AIOrchestrator } from '../services/aiOrchestrator.ts.disabled';
 import { InboundMessagePayload } from '../types';
 
 // Define the worker processing incoming messages
