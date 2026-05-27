@@ -7,6 +7,7 @@ import {
   GoogleGenerativeAI,
   SchemaType
 } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { env } from '../config/env';
 
 export class AIOrchestrator {
@@ -41,8 +42,8 @@ export class AIOrchestrator {
       return;
     }
 
-    // Use tenant-specific key if configured, otherwise fallback
-    const currentApiKey = env.GEMINI_API_KEY;
+    // Determine API Key: prefer GEMINI_API_KEY, fallback to OPENAI_API_KEY / OPENROUTER_API_KEY
+    const currentApiKey = env.GEMINI_API_KEY || env.OPENAI_API_KEY || '';
 
     // 2. Resolve or Create Customer
     let customer = await prisma.customer.findFirst({
@@ -152,24 +153,8 @@ export class AIOrchestrator {
       take: 10
     });
 
-    const messagesHistory = history
-      .reverse()
-      .map((msg) => ({
-        role:
-          msg.senderType === 'CUSTOMER'
-            ? 'user'
-            : 'model',
-        parts: [
-          {
-            text: msg.body
-          }
-        ]
-      }));
-
-    // Remove current message from history
-    if (messagesHistory.length > 0) {
-      messagesHistory.pop();
-    }
+    // Reverse history to keep chronological order
+    const sortedHistory = history.reverse();
 
     // 6. RAG Knowledge Base Search
     const contextChunks =
@@ -205,85 +190,15 @@ ${
 }
 `;
 
-    // 8. Gemini Tool Definitions
-    const tools: any = [
-      {
-        functionDeclarations: [
-          {
-            name: 'bookAppointment',
-            description:
-              'Schedules an appointment',
-            parameters: {
-              type: SchemaType.OBJECT,
-              properties: {
-                dateTime: {
-                  type: SchemaType.STRING,
-                  description:
-                    'ISO-8601 appointment date'
-                },
-                customerName: {
-                  type: SchemaType.STRING,
-                  description:
-                    'Customer full name'
-                }
-              },
-              required: [
-                'dateTime',
-                'customerName'
-              ]
-            }
-          },
-          {
-            name: 'exportToSheet',
-            description:
-              'Exports CRM lead data',
-            parameters: {
-              type: SchemaType.OBJECT,
-              properties: {
-                name: {
-                  type: SchemaType.STRING
-                },
-                email: {
-                  type: SchemaType.STRING
-                },
-                phone: {
-                  type: SchemaType.STRING
-                },
-                company: {
-                  type: SchemaType.STRING
-                },
-                budget: {
-                  type: SchemaType.STRING
-                },
-                notes: {
-                  type: SchemaType.STRING
-                }
-              },
-              required: ['name']
-            }
-          },
-          {
-            name: 'transferToHuman',
-            description:
-              'Transfers thread to a human agent',
-            parameters: {
-              type: SchemaType.OBJECT,
-              properties: {}
-            }
-          }
-        ]
-      }
-    ];
-
     let aiResponseText = '';
     let toolCallsTriggered = false;
 
-    // MOCK MODE
-    if (
-      !currentApiKey ||
-      currentApiKey.startsWith('your-') ||
-      currentApiKey === 'dummy-key'
-    ) {
+    // Detect key types
+    const isOpenAIKey = currentApiKey && currentApiKey.startsWith('sk-');
+    const isMockMode = !currentApiKey || currentApiKey.startsWith('your-') || currentApiKey === 'dummy-key';
+
+    // A. MOCK MODE
+    if (isMockMode) {
       console.log(
         '[AIOrchestrator] Running simulated LLM engine...'
       );
@@ -361,32 +276,198 @@ ${
             'Hello! How can I help you today?';
         }
       }
-    } else {
-      // REAL GEMINI MODE
+    } 
+    
+    // B. OPENAI / OPENROUTER MODE
+    else if (isOpenAIKey) {
       try {
+        console.log('[AIOrchestrator] Running OpenAI/OpenRouter LLM engine...');
+        const openai = new OpenAI({
+          apiKey: currentApiKey,
+          baseURL: currentApiKey.startsWith('sk-or-') ? 'https://openrouter.ai/api/v1' : undefined
+        });
+
+        const openAIMessages = [
+          { role: 'system', content: systemPrompt },
+          ...sortedHistory.map((msg) => ({
+            role: msg.senderType === 'CUSTOMER' ? 'user' : 'assistant',
+            content: msg.body
+          }))
+        ];
+
+        const openAITools = [
+          {
+            type: 'function',
+            function: {
+              name: 'bookAppointment',
+              description: 'Schedules an appointment',
+              parameters: {
+                type: 'object',
+                properties: {
+                  dateTime: { type: 'string', description: 'ISO-8601 appointment date' },
+                  customerName: { type: 'string', description: 'Customer full name' }
+                },
+                required: ['dateTime', 'customerName']
+              }
+            }
+          },
+          {
+            type: 'function',
+            function: {
+              name: 'exportToSheet',
+              description: 'Exports CRM lead data',
+              parameters: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  email: { type: 'string' },
+                  phone: { type: 'string' },
+                  company: { type: 'string' },
+                  budget: { type: 'string' },
+                  notes: { type: 'string' }
+                },
+                required: ['name']
+              }
+            }
+          },
+          {
+            type: 'function',
+            function: {
+              name: 'transferToHuman',
+              description: 'Transfers thread to a human agent',
+              parameters: {
+                type: 'object',
+                properties: {}
+              }
+            }
+          }
+        ];
+
+        // Specify model name (OpenRouter expects prefixed models, default is gpt-4o-mini)
+        const modelName = currentApiKey.startsWith('sk-or-') ? 'openai/gpt-4o-mini' : 'gpt-4o-mini';
+
+        const response = await openai.chat.completions.create({
+          model: modelName,
+          messages: openAIMessages as any,
+          tools: openAITools as any,
+          tool_choice: 'auto'
+        });
+
+        const responseMessage = response.choices[0].message;
+        aiResponseText = responseMessage.content || '';
+
+        if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+          toolCallsTriggered = true;
+          for (const toolCall of responseMessage.tool_calls) {
+            const toolName = toolCall.function.name;
+            const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+
+            console.log(`[AIOrchestrator] Executing OpenAI tool call: ${toolName}`, toolArgs);
+
+            let toolResult: any = {};
+            if (toolName === 'bookAppointment') {
+              toolResult = await ToolService.bookAppointment({
+                dateTime: toolArgs.dateTime,
+                customerName: toolArgs.customerName,
+                conversationId: conversation.id
+              });
+              aiResponseText += `\n[System: Booked appointment for ${toolArgs.customerName} at ${new Date(toolArgs.dateTime).toLocaleString()}]`;
+            } else if (toolName === 'exportToSheet') {
+              toolResult = await ToolService.exportToSheet({
+                leadData: toolArgs,
+                conversationId: conversation.id
+              });
+              aiResponseText += `\n[System: Lead details synchronized to CRM]`;
+            } else if (toolName === 'transferToHuman') {
+              toolResult = await ToolService.transferToHuman({
+                conversationId: conversation.id
+              });
+              aiResponseText += `\nOne moment please. I am transferring this conversation to a live agent.`;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[AIOrchestrator] OpenAI/OpenRouter API error:', error);
+        aiResponseText = 'Our AI assistant is temporarily unavailable, but your message has been received.';
+      }
+    } 
+    
+    // C. GOOGLE GEMINI MODE
+    else {
+      try {
+        console.log('[AIOrchestrator] Running Google Gemini LLM engine...');
         const genAI =
           new GoogleGenerativeAI(
             currentApiKey
           );
+
+        // Format history for Gemini chat API
+        const geminiHistory = sortedHistory.map((msg) => ({
+          role: msg.senderType === 'CUSTOMER' ? 'user' : 'model',
+          parts: [{ text: msg.body }]
+        }));
+
+        if (geminiHistory.length > 0) {
+          geminiHistory.pop(); // Remove the current message
+        }
+
+        const geminiTools = [
+          {
+            functionDeclarations: [
+              {
+                name: 'bookAppointment',
+                description: 'Schedules an appointment',
+                parameters: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    dateTime: { type: SchemaType.STRING, description: 'ISO-8601 appointment date' },
+                    customerName: { type: SchemaType.STRING, description: 'Customer full name' }
+                  },
+                  required: ['dateTime', 'customerName']
+                }
+              },
+              {
+                name: 'exportToSheet',
+                description: 'Exports CRM lead data',
+                parameters: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    name: { type: SchemaType.STRING },
+                    email: { type: SchemaType.STRING },
+                    phone: { type: SchemaType.STRING },
+                    company: { type: SchemaType.STRING },
+                    budget: { type: SchemaType.STRING },
+                    notes: { type: SchemaType.STRING }
+                  },
+                  required: ['name']
+                }
+              },
+              {
+                name: 'transferToHuman',
+                description: 'Transfers thread to a human agent',
+                parameters: {
+                  type: SchemaType.OBJECT,
+                  properties: {}
+                }
+              }
+            ]
+          }
+        ];
 
         const model =
           genAI.getGenerativeModel({
             model: 'gemini-1.5-flash-latest',
             systemInstruction:
               systemPrompt,
-            tools: tools
+            tools: geminiTools as any
           });
 
         const chat = model.startChat({
-          history: messagesHistory
+          history: geminiHistory as any
         });
 
         const responseResult =
           await chat.sendMessage(body);
-          console.log(
-            '[Gemini Raw Response]',
-            JSON.stringify(responseResult.response,null,2)
-          );
 
         const functionCalls =
           responseResult.response.functionCalls();

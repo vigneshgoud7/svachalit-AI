@@ -1,39 +1,60 @@
 import { prisma } from '../db/client';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import OpenAI from 'openai';
 import { env } from '../config/env';
 
-// Initialize Gemini Client
-const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY || 'dummy-key');
-
 /**
- * Generate a 1536-dimensional vector embedding for the input text using Gemini API (text-embedding-004).
- * Returns a fallback mock vector if the Gemini key is missing/invalid for testing.
+ * Generate a 1536-dimensional vector embedding for the input text.
+ * Dynamically supports Google Gemini (text-embedding-004) or OpenAI/OpenRouter (text-embedding-3-small)
+ * based on the active API key format.
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = env.GEMINI_API_KEY;
+  const apiKey = env.GEMINI_API_KEY || env.OPENAI_API_KEY || '';
+
   if (!apiKey || apiKey.startsWith('your-') || apiKey === 'dummy-key') {
-    // Generate a reproducible mock vector for local-only testing
-    console.log('[RAG] Using mock vector embedding generator (no Gemini API key configured)');
-    const mockVector = new Array(1536).fill(0).map((_, i) => {
+    console.log('[RAG] Using mock vector embedding generator (no API key configured)');
+    return new Array(1536).fill(0).map((_, i) => {
       const code = text.charCodeAt(i % text.length) || 1;
       return Math.sin(code + i) * 0.1;
     });
-    return mockVector;
   }
 
-  try {
-    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-    const response = await model.embedContent(text.replace(/\n/g, ' '));
-    return response.embedding.values;
-  } catch (error) {
-    console.error('[RAG] Gemini embedding generation failed:', error);
-    // Fallback to a reproducible mock vector to keep system running
-    const mockVector = new Array(1536).fill(0).map((_, i) => {
-      const code = text.charCodeAt(i % text.length) || 1;
-      return Math.sin(code + i) * 0.1;
-    });
-    return mockVector;
+  // 1. OpenAI / OpenRouter Key detected
+  if (apiKey.startsWith('sk-')) {
+    try {
+      const openai = new OpenAI({
+        apiKey: apiKey,
+        baseURL: apiKey.startsWith('sk-or-') ? 'https://openrouter.ai/api/v1' : undefined,
+      });
+
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: text.replace(/\n/g, ' '),
+      });
+
+      return response.data[0].embedding;
+    } catch (error) {
+      console.error('[RAG] OpenAI embedding generation failed, falling back to mock:', error);
+    }
+  } 
+  
+  // 2. Google Gemini Key detected
+  else {
+    try {
+      const genAI = new GoogleGenerativeAI(apiKey);
+      const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+      const response = await model.embedContent(text.replace(/\n/g, ' '));
+      return response.embedding.values;
+    } catch (error) {
+      console.error('[RAG] Gemini embedding generation failed, falling back to mock:', error);
+    }
   }
+
+  // Fallback reproducible mock vector
+  return new Array(1536).fill(0).map((_, i) => {
+    const code = text.charCodeAt(i % text.length) || 1;
+    return Math.sin(code + i) * 0.1;
+  });
 }
 
 /**
@@ -60,6 +81,7 @@ export async function queryKnowledgeBase(tenantId: string, queryText: string, li
     return results;
   } catch (error) {
     console.warn('[RAG] pgvector query failed or pgvector extension is missing. Falling back to text matching.', error);
+    
     // Standard Prisma fallback text search
     const fallbackResults = await prisma.knowledgeBase.findMany({
       where: {
