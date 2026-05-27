@@ -1046,7 +1046,7 @@ function DashboardConsole({ onExitToLanding }: DashboardConsoleProps) {
   const sseRef = useRef<EventSource | null>(null);
 
   // Read backend URL. If deployed, reads process.env.NEXT_PUBLIC_BACKEND_URL. Otherwise defaults to port 4000.
-  const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+  const BACKEND_URL = "https://autobot-1-elsg.onrender.com";
 
   // 1. Fetch Conversations on Mount
   const fetchConversations = async () => {
