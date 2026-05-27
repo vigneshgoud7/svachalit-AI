@@ -23,7 +23,7 @@ class AIOrchestrator {
             return;
         }
         // Use tenant-specific key if configured, otherwise fallback
-        const currentApiKey = tenant.openaiKey || env_1.env.GEMINI_API_KEY;
+        const currentApiKey = env_1.env.GEMINI_API_KEY;
         // 2. Resolve or Create Customer
         let customer = await client_1.prisma.customer.findFirst({
             where: {
@@ -275,7 +275,7 @@ ${contextText ||
             try {
                 const genAI = new generative_ai_1.GoogleGenerativeAI(currentApiKey);
                 const model = genAI.getGenerativeModel({
-                    model: 'gemini-1.5-flash',
+                    model: 'gemini-1.5-flash-latest',
                     systemInstruction: systemPrompt,
                     tools: tools
                 });
@@ -283,6 +283,7 @@ ${contextText ||
                     history: messagesHistory
                 });
                 const responseResult = await chat.sendMessage(body);
+                console.log('[Gemini Raw Response]', JSON.stringify(responseResult.response, null, 2));
                 const functionCalls = responseResult.response.functionCalls();
                 if (functionCalls &&
                     functionCalls.length > 0) {

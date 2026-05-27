@@ -8,7 +8,6 @@ import {
   SchemaType
 } from '@google/generative-ai';
 import { env } from '../config/env';
-import { json } from 'stream/consumers';
 
 export class AIOrchestrator {
   /**
@@ -386,7 +385,7 @@ ${
           await chat.sendMessage(body);
           console.log(
             '[Gemini Raw Response]',
-            globalThis.json.stringify(responseResult.response,null,2)
+            JSON.stringify(responseResult.response,null,2)
           );
 
         const functionCalls =
