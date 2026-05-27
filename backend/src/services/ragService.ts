@@ -9,7 +9,7 @@ import { env } from '../config/env';
  * based on the active API key format.
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = env.GEMINI_API_KEY || env.OPENAI_API_KEY || '';
+  const apiKey = env.GEMINI_API_KEY || env.OPENAI_API_KEY || env.OPENROUTER_API_KEY || '';
 
   if (!apiKey || apiKey.startsWith('your-') || apiKey === 'dummy-key') {
     console.log('[RAG] Using mock vector embedding generator (no API key configured)');

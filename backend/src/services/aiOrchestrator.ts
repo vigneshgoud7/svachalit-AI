@@ -43,7 +43,7 @@ export class AIOrchestrator {
     }
 
     // Determine API Key: prefer GEMINI_API_KEY, fallback to OPENAI_API_KEY / OPENROUTER_API_KEY
-    const currentApiKey = env.GEMINI_API_KEY || env.OPENAI_API_KEY || '';
+    const currentApiKey = env.GEMINI_API_KEY || env.OPENAI_API_KEY || env.OPENROUTER_API_KEY || '';
 
     // 2. Resolve or Create Customer
     let customer = await prisma.customer.findFirst({
@@ -386,9 +386,9 @@ ${
             }
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error('[AIOrchestrator] OpenAI/OpenRouter API error:', error);
-        aiResponseText = 'Our AI assistant is temporarily unavailable, but your message has been received.';
+        aiResponseText = `Our AI assistant is temporarily unavailable (Error: ${error?.message || 'API Call Failed'}), but your message has been received.`;
       }
     } 
     
@@ -551,14 +551,14 @@ ${
             responseResult.response.text() ||
             '';
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error(
           '[AIOrchestrator] Gemini API error:',
           error
         );
 
         aiResponseText =
-          'Our AI assistant is temporarily unavailable, but your message has been received.';
+          `Our AI assistant is temporarily unavailable (Error: ${error?.message || 'API Call Failed'}), but your message has been received.`;
       }
     }
 
