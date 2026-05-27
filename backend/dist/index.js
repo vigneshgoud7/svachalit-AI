@@ -11,40 +11,43 @@ const webhookRoutes_1 = __importDefault(require("./routes/webhookRoutes"));
 const voiceCompletion_1 = __importDefault(require("./routes/voiceCompletion"));
 const outboundRouter_1 = require("./services/outboundRouter");
 const toolService_1 = require("./services/toolService");
-require("./queues/messageWorker"); // Boot worker
+require("./queues/messageWorker");
+const messageQueue_1 = require("./queues/messageQueue");
 const client_2 = require("@prisma/client");
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)({ origin: '*' }));
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
-// Log requests in dev
+// Request Logger
 app.use((req, res, next) => {
     console.log(`[${req.method}] ${req.path}`);
     next();
 });
-// Root Route
+// ==========================================
+// ROOT ROUTE
+// ==========================================
 app.get('/', (req, res) => {
     res.json({
         success: true,
         message: 'AutoBot Backend API Running 🚀'
     });
 });
-// Mount Omnichannel Webhooks
-app.use('/api/v1/webhooks', webhookRoutes_1.default);
-// Mount Voice Custom LLM Completions (Vapi Endpoint)
-app.use('/api/v1/voice', voiceCompletion_1.default);
-// Mount Omnichannel Webhooks
-app.use('/api/v1/webhooks', webhookRoutes_1.default);
-// Mount Voice Custom LLM Completions (Vapi Endpoint)
 // ==========================================
-// SSE STREAM: REAL-TIME CONSOLE ROUTE
+// ROUTES
+// ==========================================
+app.use('/api/v1/webhooks', webhookRoutes_1.default);
+app.use('/api/v1/voice', voiceCompletion_1.default);
+// ==========================================
+// SSE STREAM ROUTE
 // ==========================================
 app.get('/api/v1/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
-    console.log('[SSE] Client connected to live events stream');
+    console.log('[SSE] Client connected');
+    // Initial ping
+    res.write(`data: ${JSON.stringify({ connected: true })}\n\n`);
     const onNewMessage = (data) => {
         res.write(`event: message\ndata: ${JSON.stringify(data)}\n\n`);
     };
@@ -54,26 +57,25 @@ app.get('/api/v1/stream', (req, res) => {
     const onCrmUpdate = (data) => {
         res.write(`event: crm\ndata: ${JSON.stringify(data)}\n\n`);
     };
-    // Subscribe to emitters
     toolService_1.liveChatEmitter.on('new-message', onNewMessage);
     toolService_1.liveChatEmitter.on('transfer-to-human', onTransferToHuman);
     toolService_1.liveChatEmitter.on('crm-update', onCrmUpdate);
-    // Keep-alive heartbeat every 15 seconds
+    // Heartbeat
     const heartbeat = setInterval(() => {
         res.write(': heartbeat\n\n');
     }, 15000);
     req.on('close', () => {
-        console.log('[SSE] Client disconnected from live stream');
+        console.log('[SSE] Client disconnected');
         toolService_1.liveChatEmitter.off('new-message', onNewMessage);
         toolService_1.liveChatEmitter.off('transfer-to-human', onTransferToHuman);
         toolService_1.liveChatEmitter.off('crm-update', onCrmUpdate);
         clearInterval(heartbeat);
+        res.end();
     });
 });
 // ==========================================
-// CONVERSATIONS & CRM REST API ENDPOINTS
+// GET CONVERSATIONS
 // ==========================================
-// Get all conversations with latest messages
 app.get('/api/v1/conversations', async (req, res) => {
     try {
         const conversations = await client_1.prisma.conversation.findMany({
@@ -84,69 +86,90 @@ app.get('/api/v1/conversations', async (req, res) => {
                     take: 1
                 }
             },
-            orderBy: { updatedAt: 'desc' }
+            orderBy: {
+                updatedAt: 'desc'
+            }
         });
         return res.json(conversations);
     }
     catch (error) {
-        return res.status(500).json({ error: 'Failed to fetch conversations' });
+        console.error(error);
+        return res.status(500).json({
+            error: 'Failed to fetch conversations'
+        });
     }
 });
-// Get conversation detail and historical messages
+// ==========================================
+// GET SINGLE CONVERSATION
+// ==========================================
 app.get('/api/v1/conversations/:id', async (req, res) => {
-    const { id } = req.params;
     try {
+        const { id } = req.params;
         const conversation = await client_1.prisma.conversation.findUnique({
             where: { id },
             include: {
                 customer: true,
                 messages: {
-                    orderBy: { createdAt: 'asc' }
+                    orderBy: {
+                        createdAt: 'asc'
+                    }
                 }
             }
         });
         if (!conversation) {
-            return res.status(404).json({ error: 'Conversation not found' });
+            return res.status(404).json({
+                error: 'Conversation not found'
+            });
         }
         return res.json(conversation);
     }
     catch (error) {
-        return res.status(500).json({ error: 'Failed to fetch conversation details' });
+        console.error(error);
+        return res.status(500).json({
+            error: 'Failed to fetch conversation'
+        });
     }
 });
-// Live Agent Manual Reply Endpoint
+// ==========================================
+// MANUAL AGENT REPLY
+// ==========================================
 app.post('/api/v1/conversations/:id/reply', async (req, res) => {
-    const { id } = req.params;
-    const { body, status } = req.body; // status is optional (e.g. AGENT_MANAGED, HUMAN_PENDING)
-    if (!body) {
-        return res.status(400).json({ error: 'Message body is required' });
-    }
     try {
+        const { id } = req.params;
+        const { body, status } = req.body;
+        if (!body) {
+            return res.status(400).json({
+                error: 'Message body required'
+            });
+        }
         const conversation = await client_1.prisma.conversation.findUnique({
             where: { id },
-            include: { customer: true }
+            include: {
+                customer: true
+            }
         });
         if (!conversation) {
-            return res.status(404).json({ error: 'Conversation not found' });
+            return res.status(404).json({
+                error: 'Conversation not found'
+            });
         }
-        // Save agent message to Database
-        const agentMsg = await client_1.prisma.message.create({
+        const agentMessage = await client_1.prisma.message.create({
             data: {
                 conversationId: id,
                 senderType: 'AGENT',
                 body
             }
         });
-        // Update conversation status and timestamps
-        const updatedConv = await client_1.prisma.conversation.update({
+        const updatedConversation = await client_1.prisma.conversation.update({
             where: { id },
             data: {
                 status: status || conversation.status,
                 updatedAt: new Date()
             },
-            include: { customer: true }
+            include: {
+                customer: true
+            }
         });
-        // Dispatch out via outbound channel adapter
         let recipientId = '';
         switch (conversation.channel) {
             case client_2.Channel.WHATSAPP:
@@ -168,35 +191,45 @@ app.post('/api/v1/conversations/:id/reply', async (req, res) => {
             recipientId,
             body
         });
-        // Notify all listeners
         toolService_1.liveChatEmitter.emit('new-message', {
             conversationId: id,
-            message: agentMsg
+            message: agentMessage
         });
         toolService_1.liveChatEmitter.emit('crm-update', {
             conversationId: id,
             customerId: conversation.customerId,
-            conversation: updatedConv
+            conversation: updatedConversation
         });
-        return res.json({ success: true, message: agentMsg });
+        return res.json({
+            success: true,
+            message: agentMessage
+        });
     }
     catch (error) {
-        console.error('[REST API] Live Agent response failure:', error);
-        return res.status(500).json({ error: 'Failed to process manual response' });
+        console.error(error);
+        return res.status(500).json({
+            error: 'Failed to process manual reply'
+        });
     }
 });
-// Update conversation configuration details / manual status toggles
+// ==========================================
+// UPDATE CONVERSATION STATUS
+// ==========================================
 app.patch('/api/v1/conversations/:id/status', async (req, res) => {
-    const { id } = req.params;
-    const { status } = req.body; // e.g. "AI_MANAGED" or "HUMAN_PENDING"
-    if (!status || (status !== 'AI_MANAGED' && status !== 'HUMAN_PENDING')) {
-        return res.status(400).json({ error: 'Valid status parameter is required (AI_MANAGED | HUMAN_PENDING)' });
-    }
     try {
+        const { id } = req.params;
+        const { status } = req.body;
+        if (!status) {
+            return res.status(400).json({
+                error: 'Status required'
+            });
+        }
         const updated = await client_1.prisma.conversation.update({
             where: { id },
             data: { status },
-            include: { customer: true }
+            include: {
+                customer: true
+            }
         });
         toolService_1.liveChatEmitter.emit('crm-update', {
             conversationId: id,
@@ -206,16 +239,21 @@ app.patch('/api/v1/conversations/:id/status', async (req, res) => {
         return res.json(updated);
     }
     catch (error) {
-        return res.status(500).json({ error: 'Failed to update conversation status' });
+        console.error(error);
+        return res.status(500).json({
+            error: 'Failed to update status'
+        });
     }
 });
 // ==========================================
-// SEEDING / PROVISIONING HELPER ENDPOINT
+// DEV SEED ENDPOINT
 // ==========================================
-app.get('/api/v1/dev/seed', async (req, res) => {
+app.post('/api/v1/dev/seed', async (req, res) => {
     try {
         let tenant = await client_1.prisma.tenant.findFirst({
-            where: { name: 'Acme Corp' }
+            where: {
+                name: 'Acme Corp'
+            }
         });
         if (!tenant) {
             tenant = await client_1.prisma.tenant.create({
@@ -225,51 +263,58 @@ app.get('/api/v1/dev/seed', async (req, res) => {
                 }
             });
         }
-        // Insert mock knowledge chunks
-        const count = await client_1.prisma.knowledgeBase.count({
-            where: { tenantId: tenant.id }
+        // KB Seed
+        const kbCount = await client_1.prisma.knowledgeBase.count({
+            where: {
+                tenantId: tenant.id
+            }
         });
-        if (count === 0) {
-            const data = [
+        if (kbCount === 0) {
+            const kbData = [
                 {
-                    title: 'Product Pricing & Plans',
-                    content: 'Acme Corp offers three plans: Starter ($19/mo, 1000 messages), Growth ($49/mo, 5000 messages), and Enterprise ($149/mo, unlimited messages with custom routing support).'
+                    title: 'Pricing Plans',
+                    content: 'Acme Corp offers Starter ($19/mo), Growth ($49/mo), and Enterprise ($149/mo) plans.'
                 },
                 {
-                    title: 'Hours of Operation',
-                    content: 'Our support desk is open Monday through Friday from 9:00 AM to 6:00 PM EST. Inquiries made outside these hours will be handled by the AI responder.'
+                    title: 'Support Hours',
+                    content: 'Support is available Monday-Friday from 9AM-6PM EST.'
                 },
                 {
-                    title: 'Return Policy',
-                    content: 'We offer a 30-day money-back guarantee. If you are not satisfied with the platform, click cancel billing in settings within 30 days of purchase for a full refund.'
+                    title: 'Refund Policy',
+                    content: 'We offer a 30-day money back guarantee.'
                 }
             ];
-            for (const item of data) {
+            for (const item of kbData) {
                 await client_1.prisma.knowledgeBase.create({
                     data: {
+                        tenantId: tenant.id,
                         title: item.title,
-                        content: item.content,
-                        tenantId: tenant.id
+                        content: item.content
                     }
                 });
             }
         }
-        // Create dummy conversations if none exist
-        const convsCount = await client_1.prisma.conversation.count();
-        if (convsCount === 0) {
-            const customer = await client_1.prisma.customer.create({
+        let customer = await client_1.prisma.customer.findFirst();
+        if (!customer) {
+            customer = await client_1.prisma.customer.create({
                 data: {
+                    tenantId: tenant.id,
                     name: 'Alice Johnson',
                     email: 'alice@example.com',
                     phone: '+15550199',
-                    tenantId: tenant.id,
                     metadata: {
-                        budget: '$50/mo',
-                        notes: 'Interested in growth plans'
+                        budget: '$50/mo'
                     }
                 }
             });
-            const conversation = await client_1.prisma.conversation.create({
+        }
+        let conversation = await client_1.prisma.conversation.findFirst({
+            where: {
+                customerId: customer.id
+            }
+        });
+        if (!conversation) {
+            conversation = await client_1.prisma.conversation.create({
                 data: {
                     tenantId: tenant.id,
                     customerId: customer.id,
@@ -277,27 +322,78 @@ app.get('/api/v1/dev/seed', async (req, res) => {
                     status: 'AI_MANAGED'
                 }
             });
-            await client_1.prisma.message.create({
-                data: {
-                    conversationId: conversation.id,
-                    senderType: 'CUSTOMER',
-                    body: 'Hello! I would like to know more about your growth pricing plans.'
-                }
-            });
         }
+        // Queue REAL AI message
+        await messageQueue_1.messageQueue.add('seed-test-message', {
+            tenantApiKey: tenant.apiKey,
+            channel: client_2.Channel.WHATSAPP,
+            senderId: customer.phone,
+            senderName: customer.name,
+            messageId: `seed_${Date.now()}`,
+            body: 'Tell me about your pricing plans',
+            metadata: {}
+        });
         return res.json({
             success: true,
-            message: 'Seeded test database configuration',
+            message: 'Seed successful',
             tenantApiKey: tenant.apiKey,
             tenantId: tenant.id
         });
     }
     catch (error) {
-        console.error('Seeding failure:', error);
-        return res.status(500).json({ error: 'Database seeding failed', details: String(error) });
+        console.error('Seed failure:', error);
+        return res.status(500).json({
+            error: 'Database seeding failed',
+            details: String(error)
+        });
     }
 });
-// Run server
+// ==========================================
+// TEST AI ENDPOINT
+// ==========================================
+app.post('/api/v1/test-ai', async (req, res) => {
+    try {
+        const tenant = await client_1.prisma.tenant.findFirst();
+        if (!tenant) {
+            return res.status(404).json({
+                error: 'No tenant found'
+            });
+        }
+        let customer = await client_1.prisma.customer.findFirst();
+        if (!customer) {
+            customer = await client_1.prisma.customer.create({
+                data: {
+                    tenantId: tenant.id,
+                    name: 'Terminal Test User',
+                    phone: '+15550001'
+                }
+            });
+        }
+        const payload = {
+            tenantApiKey: tenant.apiKey,
+            channel: client_2.Channel.WHATSAPP,
+            senderId: customer.phone || '+15550001',
+            senderName: customer.name,
+            messageId: `manual_${Date.now()}`,
+            body: req.body.message || 'Tell me about pricing',
+            metadata: {}
+        };
+        const job = await messageQueue_1.messageQueue.add('manual-test-message', payload);
+        return res.json({
+            success: true,
+            jobId: job.id
+        });
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({
+            error: 'Failed to enqueue AI test'
+        });
+    }
+});
+// ==========================================
+// START SERVER
+// ==========================================
 app.listen(env_1.env.PORT, () => {
     console.log(`[Server] Multi-channel platform server listening at http://localhost:${env_1.env.PORT}`);
 });
