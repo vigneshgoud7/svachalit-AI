@@ -33,15 +33,12 @@ app.get('/', (req: Request, res: Response) => {
 // Mount Omnichannel Webhooks
 app.use('/api/v1/webhooks', webhookRouter);
 
-<<<<<<< HEAD
 // Mount Voice Custom LLM Completions (Vapi Endpoint)
 app.use('/api/v1/voice', voiceCompletionRouter);
-=======
 // Mount Omnichannel Webhooks
 app.use('/api/v1/webhooks', webhookRouter);
 
 // Mount Voice Custom LLM Completions (Vapi Endpoint)
->>>>>>> f52c43ea9390ab42fef75c875fdc1464a5b793f1
 
 // ==========================================
 // SSE STREAM: REAL-TIME CONSOLE ROUTE
