@@ -5,7 +5,11 @@ import { env } from '../config/env';
 // Reuse Redis connection across queue and workers
 export const redisConnection = new IORedis(env.REDIS_URL, {
   maxRetriesPerRequest: null,
-  tls: {},
+  tls: {
+    rejectUnauthorized: false,
+  },
+  enableReadyCheck: false,
+  lazyConnect: true,
 });
 
 // Create the message processing queue

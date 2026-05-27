@@ -10,7 +10,11 @@ const env_1 = require("../config/env");
 // Reuse Redis connection across queue and workers
 exports.redisConnection = new ioredis_1.default(env_1.env.REDIS_URL, {
     maxRetriesPerRequest: null,
-    tls: {},
+    tls: {
+        rejectUnauthorized: false,
+    },
+    enableReadyCheck: false,
+    lazyConnect: true,
 });
 // Create the message processing queue
 exports.messageQueue = new bullmq_1.Queue('incoming-messages', {
