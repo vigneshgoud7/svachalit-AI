@@ -411,6 +411,11 @@ ${
           geminiHistory.pop(); // Remove the current message
         }
 
+        // Gemini strictly requires the first message in the history array to be from the 'user'
+        while (geminiHistory.length > 0 && geminiHistory[0].role === 'model') {
+          geminiHistory.shift();
+        }
+
         const geminiTools = [
           {
             functionDeclarations: [
