@@ -1,15 +1,10 @@
 import { prisma } from '../db/client';
 import { InboundMessagePayload } from '../types';
 import { queryKnowledgeBase } from './ragService';
-import { ToolService, liveChatEmitter } from './toolService';
+import { ToolService } from './toolService';
 import { OutboundRouter } from './outboundRouter';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '../config/env';
-import { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources';
-
-const openai = new OpenAI({
-  apiKey: env.OPENAI_API_KEY || 'dummy-key',
-});
 
 export class AIOrchestrator {
   /**
@@ -30,10 +25,7 @@ export class AIOrchestrator {
     }
 
     // Use tenant-specific key if configured, otherwise fallback to system key
-    const currentOpenaiKey =
-  env.OPENAI_API_KEY === 'dummy-key'
-    ? 'dummy-key'
-    : (tenant.openaiKey || env.OPENAI_API_KEY);
+    const currentApiKey = tenant.openaiKey || env.GEMINI_API_KEY;
 
     // 2. Resolve or Create Customer
     let customer = await prisma.customer.findFirst({
@@ -92,7 +84,7 @@ export class AIOrchestrator {
     });
 
     // Notify Dashboard of new message (real-time chat updates)
-    liveChatEmitter.emit('new-message', {
+    ToolService.liveChatEmitter.emit('new-message', {
       conversationId: conversation.id,
       message: savedCustomerMessage
     });
@@ -110,13 +102,18 @@ export class AIOrchestrator {
       take: 10
     });
 
-    // Reverse history to chronologically arrange
-    const messagesHistory: ChatCompletionMessageParam[] = history
+    // Reverse history to chronologically arrange, mapping to Gemini structure (role 'user' or 'model')
+    const messagesHistory = history
       .reverse()
       .map(msg => ({
-        role: msg.senderType === 'CUSTOMER' ? 'user' : 'assistant',
-        content: msg.body
+        role: msg.senderType === 'CUSTOMER' ? 'user' : 'model',
+        parts: [{ text: msg.body }]
       }));
+
+    // Remove the very last message from history since we send it as the active message triggers
+    if (messagesHistory.length > 0) {
+      messagesHistory.pop();
+    }
 
     // 6. STEP B: RAG Step (Query knowledge base chunks)
     const contextChunks = await queryKnowledgeBase(tenant.id, body, 3);
@@ -136,93 +133,78 @@ Persona & Safety Rules:
 Knowledge Base Context:
 ${contextText || 'No context matches found. Offer to transfer to a human if query requires internal knowledge.'}`;
 
-    // 8. STEP D: Function Calling / Tool Definitions
-    const tools: ChatCompletionTool[] = [
+    // 8. STEP D: Function Calling / Tool Definitions for Gemini (capitalized types required)
+    const tools = [
       {
-        type: 'function',
-        function: {
-          name: 'bookAppointment',
-          description: 'Schedules a physical or virtual appointment for a customer',
-          parameters: {
-            type: 'object',
-            properties: {
-              dateTime: {
-                type: 'string',
-                description: 'The preferred date and time formatted in ISO-8601 (e.g. 2026-05-30T15:00:00Z)'
+        functionDeclarations: [
+          {
+            name: 'bookAppointment',
+            description: 'Schedules a physical or virtual appointment for a customer',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                dateTime: {
+                  type: 'STRING',
+                  description: 'The preferred date and time formatted in ISO-8601 (e.g. 2026-05-30T15:00:00Z)'
+                },
+                customerName: {
+                  type: 'STRING',
+                  description: 'The full name of the customer booking the appointment'
+                }
               },
-              customerName: {
-                type: 'string',
-                description: 'The full name of the customer booking the appointment'
-              }
-            },
-            required: ['dateTime', 'customerName']
+              required: ['dateTime', 'customerName']
+            }
+          },
+          {
+            name: 'exportToSheet',
+            description: 'Saves lead parameters (email, phone, requirements) into a CRM google sheet sink',
+            parameters: {
+              type: 'OBJECT',
+              properties: {
+                name: { type: 'STRING', description: 'Customer full name' },
+                email: { type: 'STRING', description: 'Email address' },
+                phone: { type: 'STRING', description: 'Phone number' },
+                company: { type: 'STRING', description: 'Company name' },
+                budget: { type: 'STRING', description: 'Budget parameters' },
+                notes: { type: 'STRING', description: 'Specific project details or notes' }
+              },
+              required: ['name']
+            }
+          },
+          {
+            name: 'transferToHuman',
+            description: 'Stops AI automated replies and transfers the thread to a human live agent queue',
+            parameters: {
+              type: 'OBJECT',
+              properties: {}
+            }
           }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'exportToSheet',
-          description: 'Saves lead parameters (email, phone, requirements) into a CRM google sheet sink',
-          parameters: {
-            type: 'object',
-            properties: {
-              name: { type: 'string', description: 'Customer full name' },
-              email: { type: 'string', description: 'Email address' },
-              phone: { type: 'string', description: 'Phone number' },
-              company: { type: 'string', description: 'Company name' },
-              budget: { type: 'string', description: 'Budget parameters' },
-              notes: { type: 'string', description: 'Specific project details or notes' }
-            },
-            required: ['name']
-          }
-        }
-      },
-      {
-        type: 'function',
-        function: {
-          name: 'transferToHuman',
-          description: 'Stops AI automated replies and transfers the thread to a human live agent queue',
-          parameters: {
-            type: 'object',
-            properties: {}
-          }
-        }
+        ]
       }
     ];
 
-    // Assemble payload
-    const apiMessages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPrompt },
-      ...messagesHistory
-    ];
-
-    // Ensure we handle local-only/dummy LLM completions for safety and dry runs
     let aiResponseText = '';
     let toolCallsTriggered = false;
 
-    if (!currentOpenaiKey || currentOpenaiKey.startsWith('your-') || currentOpenaiKey === 'dummy-key') {
+    if (!currentApiKey || currentApiKey.startsWith('your-') || currentApiKey === 'dummy-key') {
       // Mock LLM Engine in the absence of API configuration
       console.log('[AIOrchestrator] Running simulated LLM engine...');
       const lowerBody = body.toLowerCase();
       
       if (lowerBody.includes('human') || lowerBody.includes('speak to agent') || lowerBody.includes('representative')) {
-        // Trigger handoff mock
-        const toolResult = await ToolService.transferToHuman({ conversationId: conversation.id });
+        await ToolService.transferToHuman({ conversationId: conversation.id });
         aiResponseText = "I have successfully transferred this conversation to a live agent. Someone will be with you shortly.";
         toolCallsTriggered = true;
       } else if (lowerBody.includes('book') || lowerBody.includes('appointment') || lowerBody.includes('schedule')) {
-        // Trigger appointment mock
         const toolResult = await ToolService.bookAppointment({
-          dateTime: new Date(Date.now() + 86400000 * 2).toISOString(), // 2 days later
+          dateTime: new Date(Date.now() + 86400000 * 2).toISOString(),
           customerName: customer.name || 'Valued Customer',
           conversationId: conversation.id
         });
-        aiResponseText = `I've booked an appointment for you on ${toolResult.data.appointmentDate}. Looking forward to speaking!`;
+        aiResponseText = `I've booked an appointment for you on ${new Date(toolResult.data.appointmentDate).toLocaleString()}. Looking forward to speaking!`;
         toolCallsTriggered = true;
       } else if (lowerBody.includes('export') || lowerBody.includes('lead') || lowerBody.includes('my email is')) {
-        // Trigger CRM mock
-        const toolResult = await ToolService.exportToSheet({
+        await ToolService.exportToSheet({
           conversationId: conversation.id,
           leadData: {
             name: customer.name || 'Anonymous Customer',
@@ -234,69 +216,67 @@ ${contextText || 'No context matches found. Offer to transfer to a human if quer
         aiResponseText = "Thank you! I have saved your details in our spreadsheet CRM. An account executive will reach out.";
         toolCallsTriggered = true;
       } else {
-        // Regular query answering from mock chunks
         if (contextChunks.length > 0) {
           aiResponseText = `Based on the company guidelines: "${contextChunks[0].content}" Is there anything else I can help you with?`;
         } else {
-          aiResponseText = "Hi there! I am your AI assistant. How can I help you today?";
+          aiResponseText = "Hi there! I am your Acme Corp AI assistant. How can I help you today?";
         }
       }
     } else {
-      // Direct integration with OpenAI sdk
-      const response = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: apiMessages,
+      // Initialize Gemini SDK with tenant key
+      const genAI = new GoogleGenerativeAI(currentApiKey);
+      const model = genAI.getGenerativeModel({
+        model: 'gemini-1.5-flash',
+        systemInstruction: systemPrompt,
         tools: tools,
-        tool_choice: 'auto'
       });
 
-      const responseMessage = response.choices[0].message;
+      // Start chat with history
+      const chat = model.startChat({
+        history: messagesHistory,
+      });
 
-      if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+      // Send incoming message
+      const responseResult = await chat.sendMessage(body);
+      const functionCalls = responseResult.response.functionCalls;
+
+      if (functionCalls && functionCalls.length > 0) {
         toolCallsTriggered = true;
-        for (const toolCall of responseMessage.tool_calls) {
-          const toolName = toolCall.function.name;
-          const toolArgs = JSON.parse(toolCall.function.arguments);
+        for (const call of functionCalls) {
+          const toolName = call.name;
+          const toolArgs: any = call.args;
 
-          console.log(`[AIOrchestrator] Executing tool: ${toolName} with args:`, toolArgs);
+          console.log(`[AIOrchestrator] Executing Gemini tool call: ${toolName}`, toolArgs);
 
-          let toolResultStr = '';
+          let toolResult = {};
           if (toolName === 'bookAppointment') {
-            const result = await ToolService.bookAppointment({
+            toolResult = await ToolService.bookAppointment({
               dateTime: toolArgs.dateTime,
               customerName: toolArgs.customerName,
               conversationId: conversation.id
             });
-            toolResultStr = JSON.stringify(result);
           } else if (toolName === 'exportToSheet') {
-            const result = await ToolService.exportToSheet({
+            toolResult = await ToolService.exportToSheet({
               leadData: toolArgs,
               conversationId: conversation.id
             });
-            toolResultStr = JSON.stringify(result);
           } else if (toolName === 'transferToHuman') {
-            const result = await ToolService.transferToHuman({ conversationId: conversation.id });
-            toolResultStr = JSON.stringify(result);
+            toolResult = await ToolService.transferToHuman({ conversationId: conversation.id });
           }
 
-          // Follow up with LLM after tool outputs
-          const secondResponse = await openai.chat.completions.create({
-            model: 'gpt-4o',
-            messages: [
-              { role: 'system', content: systemPrompt },
-              ...messagesHistory,
-              responseMessage,
-              {
-                role: 'tool',
-                tool_call_id: toolCall.id,
-                content: toolResultStr
+          // Resume conversation flow by passing the tool output back to Gemini
+          const secondResponse = await chat.sendMessage([
+            {
+              functionResponse: {
+                name: toolName,
+                response: { result: toolResult }
               }
-            ]
-          });
-          aiResponseText = secondResponse.choices[0].message.content || 'Action executed successfully.';
+            }
+          ]);
+          aiResponseText = secondResponse.response.text() || 'Action completed.';
         }
       } else {
-        aiResponseText = responseMessage.content || '';
+        aiResponseText = responseResult.response.text() || '';
       }
     }
 
@@ -311,7 +291,7 @@ ${contextText || 'No context matches found. Offer to transfer to a human if quer
     });
 
     // Notify agent dashboard of outbound AI reply
-    liveChatEmitter.emit('new-message', {
+    ToolService.liveChatEmitter.emit('new-message', {
       conversationId: conversation.id,
       message: savedAIMessage
     });

@@ -1,33 +1,39 @@
 import { prisma } from '../db/client';
-import OpenAI from 'openai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '../config/env';
 
-const openai = new OpenAI({
-  apiKey: env.OPENAI_API_KEY || 'dummy-key',
-});
+// Initialize Gemini Client
+const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY || 'dummy-key');
 
 /**
- * Generate a 1536-dimensional vector embedding for the input text using OpenAI API.
- * Returns a fallback mock vector if the OpenAI key is missing/invalid for testing.
+ * Generate a 1536-dimensional vector embedding for the input text using Gemini API (text-embedding-004).
+ * Returns a fallback mock vector if the Gemini key is missing/invalid for testing.
  */
 export async function generateEmbedding(text: string): Promise<number[]> {
-  const apiKey = env.OPENAI_API_KEY;
+  const apiKey = env.GEMINI_API_KEY;
   if (!apiKey || apiKey.startsWith('your-') || apiKey === 'dummy-key') {
     // Generate a reproducible mock vector for local-only testing
-    console.log('[RAG] Using mock vector embedding generator (no API key configured)');
+    console.log('[RAG] Using mock vector embedding generator (no Gemini API key configured)');
     const mockVector = new Array(1536).fill(0).map((_, i) => {
-      // Create a deterministic pseudo-random float between -1 and 1 based on text length and character code
       const code = text.charCodeAt(i % text.length) || 1;
       return Math.sin(code + i) * 0.1;
     });
     return mockVector;
   }
 
-  const response = await openai.embeddings.create({
-    model: 'text-embedding-3-small', // 1536 dimensions
-    input: text.replace(/\n/g, ' '),
-  });
-  return response.data[0].embedding;
+  try {
+    const model = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const response = await model.embedContent(text.replace(/\n/g, ' '));
+    return response.embedding.values;
+  } catch (error) {
+    console.error('[RAG] Gemini embedding generation failed:', error);
+    // Fallback to a reproducible mock vector to keep system running
+    const mockVector = new Array(1536).fill(0).map((_, i) => {
+      const code = text.charCodeAt(i % text.length) || 1;
+      return Math.sin(code + i) * 0.1;
+    });
+    return mockVector;
+  }
 }
 
 /**
@@ -40,7 +46,6 @@ export async function queryKnowledgeBase(tenantId: string, queryText: string, li
     const vectorStr = `[${embedding.join(',')}]`;
 
     // Query pgvector using PostgreSQL cosine distance operator `<=>`
-    // Cosine similarity = 1 - cosine distance
     const results = await prisma.$queryRawUnsafe<any[]>(
       `SELECT id, title, content, (1 - (embedding <=> $1::vector)) as similarity
        FROM "KnowledgeBase"

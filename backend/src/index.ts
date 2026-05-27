@@ -3,6 +3,7 @@ import cors from 'cors';
 import { env } from './config/env';
 import { prisma } from './db/client';
 import webhookRouter from './routes/webhookRoutes';
+import voiceCompletionRouter from './routes/voiceCompletion';
 import { OutboundRouter } from './services/outboundRouter';
 import { liveChatEmitter } from './services/toolService';
 import './queues/messageWorker'; // Boot worker
@@ -10,7 +11,7 @@ import { messageQueue } from './queues/messageQueue';
 import { Channel } from '@prisma/client';
 
 const app = express();
-  
+
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -23,6 +24,9 @@ app.use((req, res, next) => {
 
 // Mount Omnichannel Webhooks
 app.use('/api/v1/webhooks', webhookRouter);
+
+// Mount Voice Custom LLM Completions (Vapi Endpoint)
+app.use('/api/v1/voice', voiceCompletionRouter);
 
 // ==========================================
 // SSE STREAM: REAL-TIME CONSOLE ROUTE
@@ -143,7 +147,7 @@ app.post('/api/v1/conversations/:id/reply', async (req: Request, res: Response) 
     const updatedConv = await prisma.conversation.update({
       where: { id },
       data: {
-        status: status || conversation.status, // Allow keeping HUMAN_PENDING or resolving back
+        status: status || conversation.status,
         updatedAt: new Date()
       },
       include: { customer: true }
@@ -225,7 +229,6 @@ app.patch('/api/v1/conversations/:id/status', async (req: Request, res: Response
 // ==========================================
 app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
   try {
-    // 1. Clean existing records (Optional, safe default is to just verify and insert)
     let tenant = await prisma.tenant.findFirst({
       where: { name: 'Acme Corp' }
     });
@@ -234,12 +237,12 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
       tenant = await prisma.tenant.create({
         data: {
           name: 'Acme Corp',
-          openaiKey: env.OPENAI_API_KEY || 'dummy-key'
+          openaiKey: env.GEMINI_API_KEY || 'dummy-key'
         }
       });
     }
 
-    // 2. Insert mock knowledge chunks
+    // Insert mock knowledge chunks
     const count = await prisma.knowledgeBase.count({
       where: { tenantId: tenant.id }
     });
@@ -261,8 +264,6 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
       ];
 
       for (const item of data) {
-        // Create entries. In PostgreSQL with pgvector, the embedding can be empty/null,
-        // and we query text fallback, or update it later.
         await prisma.knowledgeBase.create({
           data: {
             title: item.title,
@@ -273,7 +274,7 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
       }
     }
 
-    // 3. Create dummy conversations if none exist
+    // Create dummy conversations if none exist
     const convsCount = await prisma.conversation.count();
     if (convsCount === 0) {
       const customer = await prisma.customer.create({
