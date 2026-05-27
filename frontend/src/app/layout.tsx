@@ -2,8 +2,8 @@ import './globals.css';
 import React from 'react';
 
 export const metadata = {
-  title: 'OmniChannel Hub - Agent Dashboard',
-  description: 'AI Orchestrated Unified Live Chat and Automation Console',
+  title: 'Svachalit | Premium Business Automation Console',
+  description: 'Automate customer messaging channels (WhatsApp, Instagram, Facebook, Voice) with secure, human-centric business memory and live agent handoff.',
 };
 
 export default function RootLayout({
