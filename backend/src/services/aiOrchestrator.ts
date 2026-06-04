@@ -9,6 +9,7 @@ import {
 } from '@google/generative-ai';
 import OpenAI from 'openai';
 import { env } from '../config/env';
+<<<<<<< HEAD
 import crypto from 'crypto';
 
 function safeJsonParse<T>(value: string | undefined, fallback: T): T {
@@ -30,6 +31,8 @@ function cacheKeyFor(tenantId: string, body: string, contextText: string) {
     .update(`${tenantId}:${body.trim().toLowerCase()}:${contextText}`)
     .digest('hex');
 }
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
 export class AIOrchestrator {
   /**
@@ -192,6 +195,7 @@ export class AIOrchestrator {
       )
       .join('\n\n');
 
+<<<<<<< HEAD
     const cacheKey = cacheKeyFor(tenant.id, body, contextText);
     const cachedRows = await prisma.$queryRaw<Array<{ response: string }>>`
       SELECT response
@@ -202,6 +206,8 @@ export class AIOrchestrator {
     `;
     const cached = cachedRows[0];
 
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     // 7. System Prompt
     const systemPrompt = `
 You are a highly efficient virtual AI receptionist answering customer queries for "${tenant.name}".
@@ -224,17 +230,24 @@ ${
     let aiResponseText = '';
     let toolCallsTriggered = false;
 
+<<<<<<< HEAD
     if (cached) {
       aiResponseText = cached.response;
       console.log('[AIOrchestrator] Served response from cache.');
     }
 
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     // Detect key types
     const isOpenAIKey = currentApiKey && currentApiKey.startsWith('sk-');
     const isMockMode = !currentApiKey || currentApiKey.startsWith('your-') || currentApiKey === 'dummy-key';
 
     // A. MOCK MODE
+<<<<<<< HEAD
     if (!aiResponseText && isMockMode) {
+=======
+    if (isMockMode) {
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       console.log(
         '[AIOrchestrator] Running simulated LLM engine...'
       );
@@ -315,7 +328,11 @@ ${
     } 
     
     // B. OPENAI / OPENROUTER MODE
+<<<<<<< HEAD
     else if (!aiResponseText && isOpenAIKey) {
+=======
+    else if (isOpenAIKey) {
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       try {
         console.log('[AIOrchestrator] Running OpenAI/OpenRouter LLM engine...');
         const openai = new OpenAI({
@@ -396,25 +413,43 @@ ${
           toolCallsTriggered = true;
           for (const toolCall of responseMessage.tool_calls) {
             const toolName = toolCall.function.name;
+<<<<<<< HEAD
             const toolArgs = safeJsonParse<Record<string, any>>(toolCall.function.arguments, {});
 
             console.log(`[AIOrchestrator] Executing OpenAI tool call: ${toolName}`, toolArgs);
 
             if (toolName === 'bookAppointment') {
               await ToolService.bookAppointment({
+=======
+            const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+
+            console.log(`[AIOrchestrator] Executing OpenAI tool call: ${toolName}`, toolArgs);
+
+            let toolResult: any = {};
+            if (toolName === 'bookAppointment') {
+              toolResult = await ToolService.bookAppointment({
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
                 dateTime: toolArgs.dateTime,
                 customerName: toolArgs.customerName,
                 conversationId: conversation.id
               });
               aiResponseText += `\n[System: Booked appointment for ${toolArgs.customerName} at ${new Date(toolArgs.dateTime).toLocaleString()}]`;
             } else if (toolName === 'exportToSheet') {
+<<<<<<< HEAD
               await ToolService.exportToSheet({
+=======
+              toolResult = await ToolService.exportToSheet({
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
                 leadData: toolArgs,
                 conversationId: conversation.id
               });
               aiResponseText += `\n[System: Lead details synchronized to CRM]`;
             } else if (toolName === 'transferToHuman') {
+<<<<<<< HEAD
               await ToolService.transferToHuman({
+=======
+              toolResult = await ToolService.transferToHuman({
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
                 conversationId: conversation.id
               });
               aiResponseText += `\nOne moment please. I am transferring this conversation to a live agent.`;
@@ -428,7 +463,11 @@ ${
     } 
     
     // C. GOOGLE GEMINI MODE
+<<<<<<< HEAD
     else if (!aiResponseText) {
+=======
+    else {
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       try {
         console.log('[AIOrchestrator] Running Google Gemini LLM engine...');
         const genAI =
@@ -611,6 +650,7 @@ ${
         'Thanks for reaching out. Your message has been received.';
     }
 
+<<<<<<< HEAD
     if (!toolCallsTriggered && !cached) {
       await prisma.$executeRaw`
         INSERT INTO "ResponseCache" ("id", "tenantId", "cacheKey", "prompt", "response", "expiresAt")
@@ -629,6 +669,8 @@ ${
       `;
     }
 
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     // 9. Save AI Message
     const savedAIMessage =
       await prisma.message.create({
@@ -660,4 +702,8 @@ ${
       body: aiResponseText
     });
   }
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c

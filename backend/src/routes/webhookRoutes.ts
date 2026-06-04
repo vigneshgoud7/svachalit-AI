@@ -4,6 +4,7 @@ import { Channel } from '@prisma/client';
 import { InboundMessagePayload } from '../types';
 import { prisma } from '../db/client';
 import { ToolService } from '../services/toolService';
+<<<<<<< HEAD
 import { env } from '../config/env';
 import { getTenantApiKey } from '../utils/tenant';
 
@@ -23,6 +24,13 @@ function safeJsonParse(value: unknown) {
 
 // Meta Webhook Verification Token
 const META_VERIFY_TOKEN = env.META_VERIFY_TOKEN;
+=======
+
+const router = Router();
+
+// Meta Webhook Verification Token
+const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'multichannel_verify_token_123';
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
 const verifyMetaWebhook = (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
@@ -49,7 +57,11 @@ router.post('/whatsapp', async (req: Request, res: Response) => {
     const { body } = req;
     console.log('[Webhook] Received WhatsApp payload:', JSON.stringify(body, null, 2));
 
+<<<<<<< HEAD
     const tenantApiKey = getTenantApiKey(req);
+=======
+    const tenantApiKey = (req.headers['x-tenant-api-key'] || req.query.apiKey) as string;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     if (!tenantApiKey) {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
@@ -91,7 +103,11 @@ router.post('/instagram', async (req: Request, res: Response) => {
     const { body } = req;
     console.log('[Webhook] Received Instagram payload:', JSON.stringify(body, null, 2));
 
+<<<<<<< HEAD
     const tenantApiKey = getTenantApiKey(req);
+=======
+    const tenantApiKey = (req.headers['x-tenant-api-key'] || req.query.apiKey) as string;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     if (!tenantApiKey) {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
@@ -130,7 +146,11 @@ router.post('/facebook', async (req: Request, res: Response) => {
     const { body } = req;
     console.log('[Webhook] Received Facebook Messenger payload:', JSON.stringify(body, null, 2));
 
+<<<<<<< HEAD
     const tenantApiKey = getTenantApiKey(req);
+=======
+    const tenantApiKey = (req.headers['x-tenant-api-key'] || req.query.apiKey) as string;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     if (!tenantApiKey) {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
@@ -168,7 +188,11 @@ router.post('/voice', async (req: Request, res: Response) => {
     const { body } = req;
     console.log('[Webhook] Received Voice webhook payload:', JSON.stringify(body, null, 2));
 
+<<<<<<< HEAD
     const tenantApiKey = getTenantApiKey(req);
+=======
+    const tenantApiKey = (req.headers['x-tenant-api-key'] || req.query.apiKey) as string;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     if (!tenantApiKey) {
       return res.status(401).json({ error: 'Missing tenant API Key' });
     }
@@ -236,7 +260,11 @@ router.post('/voice', async (req: Request, res: Response) => {
             firstMessage: 'Hello! Welcome to our automated receptionist. How can I help you today?',
             model: {
               provider: 'custom-llm',
+<<<<<<< HEAD
               url: `${env.PUBLIC_API_URL}/api/v1/voice/completion?apiKey=${tenantApiKey}`,
+=======
+              url: `http://localhost:4000/api/v1/voice/completion?apiKey=${tenantApiKey}`,
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
               model: 'gemini-1.5-flash',
               // Vapi function schema definitions
               tools: [
@@ -318,7 +346,11 @@ router.post('/voice', async (req: Request, res: Response) => {
           const rawArgs = toolCall.function.arguments;
           
           // Safer parsing
+<<<<<<< HEAD
           const args = safeJsonParse(rawArgs) as any;
+=======
+          const args = typeof rawArgs === 'string' ? JSON.parse(rawArgs) : rawArgs;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
           let resultText = '';
 
           if (name === 'bookAppointment') {

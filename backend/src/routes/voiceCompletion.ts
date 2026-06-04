@@ -8,6 +8,7 @@ import {
 } from '@google/generative-ai';
 import { env } from '../config/env';
 import { Channel } from '@prisma/client';
+<<<<<<< HEAD
 import { getTenantApiKey } from '../utils/tenant';
 
 const router = Router();
@@ -24,6 +25,11 @@ function safeJsonParse(value: unknown) {
   }
 }
 
+=======
+
+const router = Router();
+
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 /**
  * OpenAI-compatible completions endpoint for Vapi Custom LLM Integration.
  * POST /api/v1/voice/completion
@@ -38,7 +44,13 @@ router.post('/completion', async (req: Request, res: Response) => {
     );
 
     // 1. Resolve Tenant
+<<<<<<< HEAD
     const tenantApiKey = getTenantApiKey(req) || (req.query.apiKey as string);
+=======
+    const tenantApiKey = (
+      req.headers['x-tenant-api-key'] || req.query.apiKey
+    ) as string;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     if (!tenantApiKey) {
       return res.status(401).json({
@@ -362,7 +374,11 @@ ${contextText || 'No direct matches found.'}
             type: 'function',
             function: {
               name: call.name,
+<<<<<<< HEAD
               arguments: JSON.stringify(safeJsonParse(call.args))
+=======
+              arguments: JSON.stringify(call.args)
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
             }
           })
         );
@@ -443,4 +459,8 @@ function buildOpenAIResponse(text: string) {
   };
 }
 
+<<<<<<< HEAD
 export default router;
+=======
+export default router;
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c

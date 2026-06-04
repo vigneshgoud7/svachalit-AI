@@ -1,5 +1,6 @@
 node_modules
 .env
+<<<<<<< HEAD
 .env.local
 .env.*.local
 
@@ -17,3 +18,5 @@ yarn-debug.log*
 yarn-error.log*
 .DS_Store
 Thumbs.db
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c

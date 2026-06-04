@@ -71,7 +71,10 @@ export async function queryKnowledgeBase(tenantId: string, queryText: string, li
       `SELECT id, title, content, (1 - (embedding <=> $1::vector)) as similarity
        FROM "KnowledgeBase"
        WHERE "tenantId" = $2
+<<<<<<< HEAD
          AND embedding IS NOT NULL
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
        ORDER BY embedding <=> $1::vector
        LIMIT $3`,
       vectorStr,

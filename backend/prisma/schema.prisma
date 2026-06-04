@@ -78,7 +78,10 @@ model Conversation {
   tenantId   String
   tenant     Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   messages   Message[]
+<<<<<<< HEAD
   toolEvents ToolEvent[]
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
   createdAt  DateTime   @default(now())
   updatedAt  DateTime   @updatedAt
 
@@ -99,12 +102,18 @@ model KnowledgeBase {
   id        String   @id @default(uuid())
   title     String
   content   String
+<<<<<<< HEAD
   embedding Unsupported("vector")?
+=======
+  // Storing vector for pgvector. Prisma schema maps Unsupported types,
+  // which can be set/queried via raw queries.
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
   tenantId  String
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+<<<<<<< HEAD
 
 model ToolEvent {
   id             String       @id @default(uuid())
@@ -130,3 +139,5 @@ model ResponseCache {
 
   @@index([tenantId, expiresAt])
 }
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c

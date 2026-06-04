@@ -47,6 +47,7 @@ services:
       - DATABASE_URL=postgresql://postgres:postgrespassword@db:5432/multichannel_db?schema=public
       - REDIS_URL=redis://redis:6379
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+<<<<<<< HEAD
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - META_VERIFY_TOKEN=${META_VERIFY_TOKEN:-multichannel_verify_token_123}
@@ -56,6 +57,10 @@ services:
       - REQUIRE_AUTH=${REQUIRE_AUTH:-false}
       - GOOGLE_SHEETS_WEBHOOK_URL=${GOOGLE_SHEETS_WEBHOOK_URL:-}
       - CALENDAR_WEBHOOK_URL=${CALENDAR_WEBHOOK_URL:-}
+=======
+      - META_VERIFY_TOKEN=${META_VERIFY_TOKEN:-multichannel_verify_token_123}
+      - JWT_SECRET=${JWT_SECRET:-super-secret-production-jwt-key}
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     depends_on:
       db:
         condition: service_healthy
@@ -68,14 +73,21 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+<<<<<<< HEAD
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     container_name: multichannel-frontend
     ports:
       - "3000:3000"
     environment:
       - PORT=3000
+<<<<<<< HEAD
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+=======
+      - NEXT_PUBLIC_API_URL=http://localhost:4000 # Map to your public domain in production
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     depends_on:
       - backend
     restart: always

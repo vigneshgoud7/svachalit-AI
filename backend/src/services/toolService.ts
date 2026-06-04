@@ -1,7 +1,10 @@
 import { prisma } from '../db/client';
 import { EventEmitter } from 'events';
+<<<<<<< HEAD
 import { env } from '../config/env';
 import crypto from 'crypto';
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
 // Global Event Emitter for SSE real-time broadcasts to the dashboard
 export const liveChatEmitter = new EventEmitter();
@@ -33,6 +36,7 @@ export class ToolService {
   // FIX: expose emitter through ToolService
   static liveChatEmitter = liveChatEmitter;
 
+<<<<<<< HEAD
   private static async recordToolEvent(args: {
     conversationId: string;
     toolName: string;
@@ -77,18 +81,23 @@ export class ToolService {
     return response.json().catch(() => ({ ok: true }));
   }
 
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
   /**
    * Mock implementation of scheduling a calendar appointment.
    * Updates customer profile metadata in the DB.
    */
   static async bookAppointment(args: BookAppointmentArgs) {
     console.log(`[Tool: bookAppointment] Scheduling for ${args.customerName} at ${args.dateTime}`);
+<<<<<<< HEAD
     await ToolService.recordToolEvent({
       conversationId: args.conversationId,
       toolName: 'bookAppointment',
       status: 'started',
       input: args
     });
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     
     const conversation = await prisma.conversation.findUnique({
       where: { id: args.conversationId },
@@ -122,6 +131,7 @@ export class ToolService {
       customer: updatedCustomer
     });
 
+<<<<<<< HEAD
     let providerResult: unknown = { provider: 'mock-calendar' };
 
     try {
@@ -156,6 +166,13 @@ export class ToolService {
     });
 
     return result;
+=======
+    return {
+      success: true,
+      message: `Appointment scheduled successfully for ${args.customerName} on ${args.dateTime}.`,
+      data: { appointmentDate: args.dateTime }
+    };
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
   }
 
   /**
@@ -163,12 +180,15 @@ export class ToolService {
    */
   static async exportToSheet(args: ExportToSheetArgs) {
     console.log(`[Tool: exportToSheet] Exporting lead data:`, args.leadData);
+<<<<<<< HEAD
     await ToolService.recordToolEvent({
       conversationId: args.conversationId,
       toolName: 'exportToSheet',
       status: 'started',
       input: args.leadData
     });
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: args.conversationId },
@@ -206,6 +226,7 @@ export class ToolService {
       customer: updatedCustomer
     });
 
+<<<<<<< HEAD
     let sinkResult: unknown = { provider: 'local-metadata' };
 
     try {
@@ -237,6 +258,13 @@ export class ToolService {
     });
 
     return result;
+=======
+    return {
+      success: true,
+      message: `Lead metrics successfully exported to sheet storage.`,
+      exportedData: args.leadData
+    };
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
   }
 
   /**
@@ -244,12 +272,15 @@ export class ToolService {
    */
   static async transferToHuman(args: TransferToHumanArgs) {
     console.log(`[Tool: transferToHuman] Handoff requested for conversation: ${args.conversationId}`);
+<<<<<<< HEAD
     await ToolService.recordToolEvent({
       conversationId: args.conversationId,
       toolName: 'transferToHuman',
       status: 'started',
       input: args
     });
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     const updatedConversation = await prisma.conversation.update({
       where: { id: args.conversationId },
@@ -267,11 +298,16 @@ export class ToolService {
       conversation: updatedConversation
     });
 
+<<<<<<< HEAD
     const result = {
+=======
+    return {
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       success: true,
       message: `Conversation transferred to human queue. The AI responder has paused.`,
       conversationStatus: 'HUMAN_PENDING'
     };
+<<<<<<< HEAD
 
     await ToolService.recordToolEvent({
       conversationId: args.conversationId,
@@ -284,3 +320,7 @@ export class ToolService {
     return result;
   }
 }
+=======
+  }
+}
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c

@@ -2,8 +2,11 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+<<<<<<< HEAD
 RUN apk add --no-cache openssl libc6-compat
 
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 # Copy package configurations
 COPY package*.json ./
 

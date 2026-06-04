@@ -1,12 +1,16 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+<<<<<<< HEAD
 import { Channel } from '@prisma/client';
+=======
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 import { env } from './config/env';
 import { prisma } from './db/client';
 import webhookRouter from './routes/webhookRoutes';
 import voiceCompletionRouter from './routes/voiceCompletion';
 import { OutboundRouter } from './services/outboundRouter';
 import { liveChatEmitter } from './services/toolService';
+<<<<<<< HEAD
 import {
   backfillKnowledgeBaseEmbeddings,
   createKnowledgeBaseEntry,
@@ -25,11 +29,25 @@ app.use(cors({ origin: env.NODE_ENV === 'production' ? env.FRONTEND_URL : '*' })
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+=======
+import './queues/messageWorker';
+import { messageQueue } from './queues/messageQueue';
+import { Channel } from '@prisma/client';
+
+const app = express();
+
+app.use(cors({ origin: '*' }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Request Logger
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 app.use((req, res, next) => {
   console.log(`[${req.method}] ${req.path}`);
   next();
 });
 
+<<<<<<< HEAD
 app.get('/', (req: Request, res: Response) => {
   res.json({
     success: true,
@@ -214,6 +232,48 @@ app.get('/api/v1/stream', dashboardAuth, (req: Request, res: Response) => {
     res.write(`event: transfer\ndata: ${JSON.stringify(data)}\n\n`);
   };
   const onCrmUpdate = (data: unknown) => {
+=======
+// ==========================================
+// ROOT ROUTE
+// ==========================================
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    success: true,
+    message: 'AutoBot Backend API Running 🚀'
+  });
+});
+
+// ==========================================
+// ROUTES
+// ==========================================
+app.use('/api/v1/webhooks', webhookRouter);
+app.use('/api/v1/voice', voiceCompletionRouter);
+
+// ==========================================
+// SSE STREAM ROUTE
+// ==========================================
+app.get('/api/v1/stream', (req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  res.flushHeaders();
+
+  console.log('[SSE] Client connected');
+
+  // Initial ping
+  res.write(`data: ${JSON.stringify({ connected: true })}\n\n`);
+
+  const onNewMessage = (data: any) => {
+    res.write(`event: message\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const onTransferToHuman = (data: any) => {
+    res.write(`event: transfer\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const onCrmUpdate = (data: any) => {
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     res.write(`event: crm\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -221,19 +281,35 @@ app.get('/api/v1/stream', dashboardAuth, (req: Request, res: Response) => {
   liveChatEmitter.on('transfer-to-human', onTransferToHuman);
   liveChatEmitter.on('crm-update', onCrmUpdate);
 
+<<<<<<< HEAD
+=======
+  // Heartbeat
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
   const heartbeat = setInterval(() => {
     res.write(': heartbeat\n\n');
   }, 15000);
 
   req.on('close', () => {
+<<<<<<< HEAD
     liveChatEmitter.off('new-message', onNewMessage);
     liveChatEmitter.off('transfer-to-human', onTransferToHuman);
     liveChatEmitter.off('crm-update', onCrmUpdate);
     clearInterval(heartbeat);
+=======
+    console.log('[SSE] Client disconnected');
+
+    liveChatEmitter.off('new-message', onNewMessage);
+    liveChatEmitter.off('transfer-to-human', onTransferToHuman);
+    liveChatEmitter.off('crm-update', onCrmUpdate);
+
+    clearInterval(heartbeat);
+
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     res.end();
   });
 });
 
+<<<<<<< HEAD
 app.get('/api/v1/conversations', dashboardAuth, async (req: Request, res: Response) => {
   try {
     const tenant = await resolveTenant(req);
@@ -244,6 +320,14 @@ app.get('/api/v1/conversations', dashboardAuth, async (req: Request, res: Respon
 
     const conversations = await prisma.conversation.findMany({
       where: { tenantId: tenant.id },
+=======
+// ==========================================
+// GET CONVERSATIONS
+// ==========================================
+app.get('/api/v1/conversations', async (req: Request, res: Response) => {
+  try {
+    const conversations = await prisma.conversation.findMany({
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       include: {
         customer: true,
         messages: {
@@ -251,12 +335,19 @@ app.get('/api/v1/conversations', dashboardAuth, async (req: Request, res: Respon
           take: 1
         }
       },
+<<<<<<< HEAD
       orderBy: { updatedAt: 'desc' }
+=======
+      orderBy: {
+        updatedAt: 'desc'
+      }
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     });
 
     return res.json(conversations);
   } catch (error) {
     console.error(error);
+<<<<<<< HEAD
     return res.status(500).json({ error: 'Failed to fetch conversations' });
   }
 });
@@ -281,11 +372,44 @@ app.get('/api/v1/conversations/:id', dashboardAuth, async (req: Request, res: Re
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
+=======
+
+    return res.status(500).json({
+      error: 'Failed to fetch conversations'
+    });
+  }
+});
+
+// ==========================================
+// GET SINGLE CONVERSATION
+// ==========================================
+app.get('/api/v1/conversations/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        messages: {
+          orderBy: {
+            createdAt: 'asc'
+          }
+        }
+      }
+    });
+
+    if (!conversation) {
+      return res.status(404).json({
+        error: 'Conversation not found'
+      });
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     }
 
     return res.json(conversation);
   } catch (error) {
     console.error(error);
+<<<<<<< HEAD
     return res.status(500).json({ error: 'Failed to fetch conversation' });
   }
 });
@@ -311,22 +435,65 @@ app.post('/api/v1/conversations/:id/reply', dashboardAuth, async (req: Request, 
 
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
+=======
+
+    return res.status(500).json({
+      error: 'Failed to fetch conversation'
+    });
+  }
+});
+
+// ==========================================
+// MANUAL AGENT REPLY
+// ==========================================
+app.post('/api/v1/conversations/:id/reply', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { body, status } = req.body;
+
+    if (!body) {
+      return res.status(400).json({
+        error: 'Message body required'
+      });
+    }
+
+    const conversation = await prisma.conversation.findUnique({
+      where: { id },
+      include: {
+        customer: true
+      }
+    });
+
+    if (!conversation) {
+      return res.status(404).json({
+        error: 'Conversation not found'
+      });
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     }
 
     const agentMessage = await prisma.message.create({
       data: {
+<<<<<<< HEAD
         conversationId: conversation.id,
+=======
+        conversationId: id,
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
         senderType: 'AGENT',
         body
       }
     });
 
     const updatedConversation = await prisma.conversation.update({
+<<<<<<< HEAD
       where: { id: conversation.id },
+=======
+      where: { id },
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       data: {
         status: status || conversation.status,
         updatedAt: new Date()
       },
+<<<<<<< HEAD
       include: { customer: true }
     });
 
@@ -336,6 +503,32 @@ app.post('/api/v1/conversations/:id/reply', dashboardAuth, async (req: Request, 
         : conversation.channel === Channel.FACEBOOK
           ? conversation.customer.facebookId || ''
           : conversation.customer.phone || '';
+=======
+      include: {
+        customer: true
+      }
+    });
+
+    let recipientId = '';
+
+    switch (conversation.channel) {
+      case Channel.WHATSAPP:
+      case Channel.VOICE:
+        recipientId = conversation.customer.phone || '';
+        break;
+
+      case Channel.INSTAGRAM:
+        recipientId = conversation.customer.instagramId || '';
+        break;
+
+      case Channel.FACEBOOK:
+        recipientId = conversation.customer.facebookId || '';
+        break;
+
+      default:
+        recipientId = conversation.customerId;
+    }
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     await OutboundRouter.sendResponse({
       conversationId: conversation.id,
@@ -345,15 +538,25 @@ app.post('/api/v1/conversations/:id/reply', dashboardAuth, async (req: Request, 
     });
 
     liveChatEmitter.emit('new-message', {
+<<<<<<< HEAD
       conversationId: conversation.id,
       message: agentMessage
     });
     liveChatEmitter.emit('crm-update', {
       conversationId: conversation.id,
+=======
+      conversationId: id,
+      message: agentMessage
+    });
+
+    liveChatEmitter.emit('crm-update', {
+      conversationId: id,
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       customerId: conversation.customerId,
       conversation: updatedConversation
     });
 
+<<<<<<< HEAD
     return res.json({ success: true, message: agentMessage });
   } catch (error) {
     console.error(error);
@@ -391,6 +594,45 @@ app.patch('/api/v1/conversations/:id/status', dashboardAuth, async (req: Request
 
     liveChatEmitter.emit('crm-update', {
       conversationId: existing.id,
+=======
+    return res.json({
+      success: true,
+      message: agentMessage
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: 'Failed to process manual reply'
+    });
+  }
+});
+
+// ==========================================
+// UPDATE CONVERSATION STATUS
+// ==========================================
+app.patch('/api/v1/conversations/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        error: 'Status required'
+      });
+    }
+
+    const updated = await prisma.conversation.update({
+      where: { id },
+      data: { status },
+      include: {
+        customer: true
+      }
+    });
+
+    liveChatEmitter.emit('crm-update', {
+      conversationId: id,
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       customerId: updated.customerId,
       conversation: updated
     });
@@ -398,6 +640,7 @@ app.patch('/api/v1/conversations/:id/status', dashboardAuth, async (req: Request
     return res.json(updated);
   } catch (error) {
     console.error(error);
+<<<<<<< HEAD
     return res.status(500).json({ error: 'Failed to update status' });
   }
 });
@@ -478,6 +721,25 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
     }
 
     let tenant = await prisma.tenant.findFirst({ where: { name: 'Acme Corp' } });
+=======
+
+    return res.status(500).json({
+      error: 'Failed to update status'
+    });
+  }
+});
+
+// ==========================================
+// DEV SEED ENDPOINT
+// ==========================================
+app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
+  try {
+    let tenant = await prisma.tenant.findFirst({
+      where: {
+        name: 'Acme Corp'
+      }
+    });
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     if (!tenant) {
       tenant = await prisma.tenant.create({
@@ -488,12 +750,22 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
       });
     }
 
+<<<<<<< HEAD
     const kbCount = await prisma.knowledgeBase.count({ where: { tenantId: tenant.id } });
+=======
+    // KB Seed
+    const kbCount = await prisma.knowledgeBase.count({
+      where: {
+        tenantId: tenant.id
+      }
+    });
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     if (kbCount === 0) {
       const kbData = [
         {
           title: 'Pricing Plans',
+<<<<<<< HEAD
           content: 'Acme Corp offers Starter ($19/mo), Growth ($49/mo), and Enterprise ($149/mo) plans.'
         },
         {
@@ -507,10 +779,25 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
         {
           title: 'Voice Demo',
           content: 'Voice callers can book appointments, leave lead details, or request a human handoff.'
+=======
+          content:
+            'Acme Corp offers Starter ($19/mo), Growth ($49/mo), and Enterprise ($149/mo) plans.'
+        },
+        {
+          title: 'Support Hours',
+          content:
+            'Support is available Monday-Friday from 9AM-6PM EST.'
+        },
+        {
+          title: 'Refund Policy',
+          content:
+            'We offer a 30-day money back guarantee.'
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
         }
       ];
 
       for (const item of kbData) {
+<<<<<<< HEAD
         await createKnowledgeBaseEntry({
           tenantId: tenant.id,
           title: item.title,
@@ -578,6 +865,57 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
       channel: Channel.WHATSAPP,
       senderId: '+15550199',
       senderName: 'Alice Johnson',
+=======
+        await prisma.knowledgeBase.create({
+          data: {
+            tenantId: tenant.id,
+            title: item.title,
+            content: item.content
+          }
+        });
+      }
+    }
+
+    let customer = await prisma.customer.findFirst();
+
+    if (!customer) {
+      customer = await prisma.customer.create({
+        data: {
+          tenantId: tenant.id,
+          name: 'Alice Johnson',
+          email: 'alice@example.com',
+          phone: '+15550199',
+          metadata: {
+            budget: '$50/mo'
+          }
+        }
+      });
+    }
+
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        customerId: customer.id
+      }
+    });
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          tenantId: tenant.id,
+          customerId: customer.id,
+          channel: Channel.WHATSAPP,
+          status: 'AI_MANAGED'
+        }
+      });
+    }
+
+    // Queue REAL AI message
+    await messageQueue.add('seed-test-message', {
+      tenantApiKey: tenant.apiKey,
+      channel: Channel.WHATSAPP,
+      senderId: customer.phone!,
+      senderName: customer.name,
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
       messageId: `seed_${Date.now()}`,
       body: 'Tell me about your pricing plans',
       metadata: {}
@@ -591,6 +929,10 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Seed failure:', error);
+<<<<<<< HEAD
+=======
+
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
     return res.status(500).json({
       error: 'Database seeding failed',
       details: String(error)
@@ -598,6 +940,7 @@ app.post('/api/v1/dev/seed', async (req: Request, res: Response) => {
   }
 });
 
+<<<<<<< HEAD
 app.post('/api/v1/test-ai', dashboardAuth, async (req: Request, res: Response) => {
   try {
     const tenant = await resolveTenant(req);
@@ -612,6 +955,22 @@ app.post('/api/v1/test-ai', dashboardAuth, async (req: Request, res: Response) =
         phone: '+15550001'
       }
     });
+=======
+// ==========================================
+// TEST AI ENDPOINT
+// ==========================================
+app.post('/api/v1/test-ai', async (req: Request, res: Response) => {
+  try {
+    const tenant = await prisma.tenant.findFirst();
+
+    if (!tenant) {
+      return res.status(404).json({
+        error: 'No tenant found'
+      });
+    }
+
+    let customer = await prisma.customer.findFirst();
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
 
     if (!customer) {
       customer = await prisma.customer.create({
@@ -633,6 +992,7 @@ app.post('/api/v1/test-ai', dashboardAuth, async (req: Request, res: Response) =
       metadata: {}
     };
 
+<<<<<<< HEAD
     const job = await messageQueue.add('manual-test-message', payload);
     return res.json({ success: true, jobId: job.id });
   } catch (error) {
@@ -646,3 +1006,31 @@ void ensureKnowledgeBaseVectorStore();
 app.listen(env.PORT, () => {
   console.log(`[Server] Multi-channel platform server listening at http://localhost:${env.PORT}`);
 });
+=======
+    const job = await messageQueue.add(
+      'manual-test-message',
+      payload
+    );
+
+    return res.json({
+      success: true,
+      jobId: job.id
+    });
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      error: 'Failed to enqueue AI test'
+    });
+  }
+});
+
+// ==========================================
+// START SERVER
+// ==========================================
+app.listen(env.PORT, () => {
+  console.log(
+    `[Server] Multi-channel platform server listening at http://localhost:${env.PORT}`
+  );
+});
+>>>>>>> 765969bd30239688115f15de9bc845dfa0e7665c
