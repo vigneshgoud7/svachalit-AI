@@ -1,0 +1,6 @@
+services:
+  db:
+    ports: !reset []
+
+  redis:
+    ports: !reset []
